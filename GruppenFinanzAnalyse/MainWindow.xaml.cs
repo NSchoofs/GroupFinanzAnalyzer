@@ -99,6 +99,13 @@ namespace GruppenFinanzAnalyse
                         if (line.Split(new char[] { '.' })[1] != MonthString)
                             continue;
 
+                        //filter year
+                        if (!YearString.EndsWith(line.Split(new char[] { '.' })[2].Substring(0,2)))
+                        {
+                            string[] test = line.Split(new char[] { '.' });
+                            continue;
+                        }
+
                         //get payer
                         string payerName = null;
                         string msgAndSender = line.Substring(18);
@@ -113,12 +120,13 @@ namespace GruppenFinanzAnalyse
                         {
                             if (!msgPart.Contains("€"))
                             {
-                                subject = msgPart.Trim(new char[] { ' ' });
+                                subject += msgPart + " ";
                                 continue;
                             }
 
                             amountString = msgPart.Trim(new char[] { ' ', '€' });
                         }
+                        subject = subject.Trim(new char[] { ' ' });
                         if (!float.TryParse(amountString, out amount))
                             System.Windows.Forms.MessageBox.Show("Fehler beim konvertieren von " + amountString + "zu float.");
 
