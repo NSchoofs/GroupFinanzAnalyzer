@@ -127,7 +127,7 @@ namespace GruppenFinanzAnalyse
                             amountString = msgPart.Trim(new char[] { ' ', '€' });
                         }
                         subject = subject.Trim(new char[] { ' ' });
-                        if (!float.TryParse(amountString, out amount))
+                        if (!string.IsNullOrEmpty(amountString) && !float.TryParse(amountString, out amount))
                             System.Windows.Forms.MessageBox.Show("Fehler beim konvertieren von " + amountString + "zu float.");
 
                         if (payers.Where(x => x.Name == payerName).Count() == 0)    //if payer not exists add payer
