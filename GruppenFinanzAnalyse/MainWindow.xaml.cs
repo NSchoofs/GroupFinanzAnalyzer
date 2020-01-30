@@ -33,13 +33,14 @@ namespace GruppenFinanzAnalyse
 
             InitializeComponent();
 
-            DataContext = this;
+            this.DataContext = this;
 
             txtBlckOutput.Text = "Export des Gruppenverlaufs per Mail senden und per Drag&Drop hier rein ziehen.";
 
             cmbBxYear.SelectedIndex = Month == 1 ? 1 : 0;  //select last (current year) or second to last (last year) if month is January 
         }
 
+        private void PropChanged(string propName) { PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propName)); }
         public event PropertyChangedEventHandler PropertyChanged;
 
         //Months
@@ -134,7 +135,7 @@ namespace GruppenFinanzAnalyse
                             payers.Add(new Payer(payerName));
 
                         //add payment to payer
-                        payers.Where(x => x.Name == payerName).First().AddPayment(amount, subject);
+                        payers.Where(x => x.Name == payerName).First().AddPayment(amount, subject, line.Split(',')[0]);
                     }
                     catch (Exception)
                     {
@@ -144,30 +145,33 @@ namespace GruppenFinanzAnalyse
                 }
 
                 txtBlckOutput.Text = "";
-                Output(" - " + MonthFromNumber(Month) + " " + YearString + " - ");
-                Output(" ");
+                //Output(" - " + MonthFromNumber(Month) + " " + YearString + " - ");
+                //Output(" ");
 
-                float sum = 0;
                 foreach (Payer payer in payers)
                 {
-                    Output("\r\n" + payer.Name + " hat " + payer.SumPayed + " € bezahlt.");
-                    sum += payer.SumPayed;
+                    //Output("\r\n" + payer.Name + " hat " + payer.SumPayed + " € bezahlt.");
+                    Sum += payer.SumPayed;
                 }
 
-                Output(" ");
+                //Output(" ");
 
-                Output("\r\nInsgesamt wurden " + sum + " € ausgegeben.");
+                //Output("\r\nInsgesamt wurden " + sum + " € ausgegeben.");
 
-                Output(" ");
+                //Output(" ");
 
-                float sumPerPayer = sum / payers.Count;
+                float sumPerPayer = Sum / payers.Count;
 
                 foreach (Payer payer in payers)
                 {
-                    if (payer.SumPayed > sumPerPayer)
-                        Output(payer.Name + " bekommt " + (payer.SumPayed - sumPerPayer) + " €.");
-                    else
-                        Output(payer.Name + " bezahlt " + (sumPerPayer - payer.SumPayed) + " €.");
+                    //if (payer.SumPayed > sumPerPayer)
+                    //    Output(payer.Name + " bekommt " + (payer.SumPayed - sumPerPayer) + " €.");
+                    //else
+                    //    Output(payer.Name + " bezahlt " + (sumPerPayer - payer.SumPayed) + " €.");
+
+                    payer.CompensationPayment = sumPerPayer - payer.SumPayed;
+
+                    Payers.Add(payer);
                 }
 
             }
@@ -178,12 +182,38 @@ namespace GruppenFinanzAnalyse
             }
         }
 
+        private BindingList<Payer> payers = new BindingList<Payer>();
+        public BindingList<Payer> Payers
+        {
+            get => payers;
+            set
+            {
+                if (payers == value) return;
+
+                payers = value;
+                PropChanged(nameof(Payers));
+            }
+        }
+
+        private float sum = 0;
+        public float Sum
+        {
+            get => sum;
+            set
+            {
+                if (sum == value) return;
+
+                sum = value;
+                PropChanged(nameof(Sum));
+            }
+        }
+
         private void Output(string output)
         {
-            if (output.StartsWith("\r\n"))
-                txtBlckOutput.Text += output;
-            else
-                txtBlckOutput.Text += "\r\n" + output;
+            //if (output.StartsWith("\r\n"))
+            //    txtBlckOutput.Text += output;
+            //else
+            //    txtBlckOutput.Text += "\r\n" + output;
         }
 
         private string MonthFromNumber(int num)
@@ -207,34 +237,45 @@ namespace GruppenFinanzAnalyse
             }
         }
 
-        public class Payer
+        public class Payer : INotifyPropertyChanged
         {
             public Payer(string name)
             {
                 Name = name;
-                Payments = new List<Payment>();
+                Payments = new BindingList<Payment>();
                 SumPayed = 0;
             }
 
             public string Name { get; private set; }
             public float SumPayed { get; private set; }
-            public List<Payment> Payments { get; private set; }
+            public BindingList<Payment> Payments { get; private set; }
 
-            public void AddPayment(float amount, string subject)
+            public float CompensationPayment { get; set; }
+
+            public void AddPayment(float amount, string subject, string date)
             {
                 SumPayed += amount;
+                Payments.Add(new Payment(amount, subject, date));
             }
+
+            private void PropChanged(string propName) { PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propName)); }
+            public event PropertyChangedEventHandler PropertyChanged;
         }
 
-        public class Payment
+        public class Payment : INotifyPropertyChanged
         {
-            public Payment(float amount, string subject)
+            public Payment(float amount, string subject, string date)
             {
                 Subject = subject;
                 Amount = amount;
+                Date = date;
             }
             public string Subject { get; private set; }
             public float Amount { get; private set; }
+            public string Date { get; private set; }
+
+            private void PropChanged(string propName) { PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propName)); }
+            public event PropertyChangedEventHandler PropertyChanged;
         }
     }
 }
