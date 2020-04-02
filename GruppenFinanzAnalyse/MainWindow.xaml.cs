@@ -15,6 +15,7 @@ using System.Windows.Shapes;
 using System.IO;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Threading;
 
 namespace GruppenFinanzAnalyse
 {
@@ -48,7 +49,8 @@ namespace GruppenFinanzAnalyse
         public string MonthString { get; set; } = "01";
         private void Months_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            MonthString = cmbBoxMonths.SelectedItem.ToString().Split(new char[] { ':' }).Last().Trim(new char[] { ' '});
+            MonthString = cmbBoxMonths.SelectedItem.ToString().Split(new char[] { ':' }).Last().Trim(new char[] { ' ' });
+            ParseLastFile();
         }
 
         //Years
@@ -58,7 +60,10 @@ namespace GruppenFinanzAnalyse
         private void CmbBxYear_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             YearString = cmbBxYear.SelectedItem.ToString().Split(new char[] { ':' }).Last().Trim(new char[] { ' ' });
+            ParseLastFile();
         }
+
+        private string[] lastFileLines = new string[]{""};
 
         private void Drop_Handler(object sender, DragEventArgs e)
         {
@@ -85,39 +90,129 @@ namespace GruppenFinanzAnalyse
                 string path = droppedFiles[0];
 
                 string[] lines = File.ReadAllLines(path);
+                if (lines.Count() > 0)
+                    lastFileLines = lines;
 
+                ParseLastFile();
+            }
+            catch(Exception ex)
+            {
+                System.Windows.Forms.MessageBox.Show("Error while opening file: " + ex.ToString());
+            }
+        }
+
+        private void ParseLastFile()
+        {
+            try { 
                 List<Payer> payers = new List<Payer>();
 
-                foreach (string line in lines)
+                MissedMessages.Clear();  //clear missed list for new read
+
+                DateTime latestDateTime = new DateTime(1, 1, 1);
+                Payer latestPayer = null;
+
+                foreach (string line in lastFileLines)
                 {
                     try
                     {
-                        //filter contains payment
-                        if (!line.Contains("€"))
-                            continue;
-
-                        //filter month
-                        if (line.Split(new char[] { '.' })[1] != MonthString)
-                            continue;
-
-                        //filter year
-                        if (!YearString.EndsWith(line.Split(new char[] { '.' })[2].Substring(0,2)))
+                        string msgString = "";
+                        if (CopiedFromWaWeb)
                         {
-                            string[] test = line.Split(new char[] { '.' });
-                            continue;
+                            ////new parse with copy from whatsapp web
+                            //handle lines of format: "[16:57, 8.1.2020] XYZ: Shampoo 2,50€"
+
+                            //1. get latest date
+                            if (line.StartsWith("["))
+                            {
+                                try
+                                {
+                                    string dateTimeString = line.Split(']').First().Trim('[');
+                                    DateTime newDateTime = DateTime.ParseExact(dateTimeString, "HH:mm, d.M.yyyy", null);
+                                    latestDateTime = newDateTime;
+                                }
+                                catch (Exception ex) { }
+                            }
+
+                            // --> if date doesnt fit into filter continue
+                            string messageMonthString = latestDateTime.Month.ToString();
+                            if (messageMonthString.Count() < 2)
+                                messageMonthString = '0' + messageMonthString;
+                            if (messageMonthString != MonthString)
+                                continue;
+                            if (latestDateTime.Year.ToString() != YearString)
+                                continue;
+
+                            //2. get latest payer
+                            if (line.StartsWith("["))
+                            {
+                                string payerName = line.Split(':')[1].Split(']').Last().Trim(' ');
+                                if (payers.Where(x => x.Name == payerName).Count() == 0)    //if payer not exists add payer
+                                    payers.Add(new Payer(payerName));
+
+                                //add payment to payer
+                                latestPayer = payers.Where(x => x.Name == payerName).First();
+                            }
+
+                            //3. get payment
+                            if (!line.Contains("€"))
+                            {
+                                MissedMessages.Add(line);
+                                continue;
+                            }
+
+                            msgString = line.Split(':').Last();
+                        }
+                        else
+                        {
+
+                            //old parse with export function that is now disabled in germany
+                            //handles lines of format: "27.08.19, 19:43 - XYZ: Restaurant 22€"
+
+                            //filter month
+                            if (line.Split(new char[] { '.' })[1] != MonthString)
+                                continue;
+
+                            //filter year
+                            if (!YearString.EndsWith(line.Split(new char[] { '.' })[2].Substring(0, 2)))
+                            {
+                                string[] test = line.Split(new char[] { '.' });
+                                continue;
+                            }
+
+                            try
+                            {
+                                string dateTimeString = line.Substring(0, 15);
+                                DateTime newDateTime = DateTime.ParseExact(dateTimeString, "dd.MM.yy, HH:mm", null);
+                                latestDateTime = newDateTime;
+                            }
+                            catch (Exception ex) { }
+
+                            //filter contains payment
+                            if (!line.Contains("€"))
+                            {
+                                MissedMessages.Add(line);
+                                continue;
+                            }
+
+                            //get payer
+                            string payerName = null;
+                            string msgAndSender = line.Substring(18);
+                            payerName = msgAndSender.Split(new char[] { ':' })[0];
+
+                            //get amount and subject
+                            msgString = msgAndSender.Split(new char[] { ':' })[1];
+
+                            if (payers.Where(x => x.Name == payerName).Count() == 0)    //if payer not exists add payer
+                                payers.Add(new Payer(payerName));
+
+                            //add payment to payer
+                            latestPayer = payers.Where(x => x.Name == payerName).First();
                         }
 
-                        //get payer
-                        string payerName = null;
-                        string msgAndSender = line.Substring(18);
-                        payerName = msgAndSender.Split(new char[] { ':' })[0];
-
-                        //get amount and subject
                         float amount = 0;
                         string subject = "";
-                        string msg = msgAndSender.Split(new char[] { ':' })[1];
                         string amountString = null;
-                        foreach (string msgPart in msg.Split(new char[] { ' ' }))
+                        foreach (string msgPart in msgString.Split(new char[] { ' ' }))
                         {
                             if (!msgPart.Contains("€"))
                             {
@@ -127,53 +222,47 @@ namespace GruppenFinanzAnalyse
 
                             amountString = msgPart.Trim(new char[] { ' ', '€' });
                         }
+                        if (amountString != null && Thread.CurrentThread.CurrentCulture.NumberFormat.NumberDecimalSeparator == "." && amountString.Contains(","))   //replace comma with . if english style decimal separators
+                        {
+                            amountString = amountString.Replace(',', '.');
+                        }
                         subject = subject.Trim(new char[] { ' ' });
                         if (!string.IsNullOrEmpty(amountString) && !float.TryParse(amountString, out amount))
-                            System.Windows.Forms.MessageBox.Show("Fehler beim konvertieren von " + amountString + "zu float.");
-
-                        if (payers.Where(x => x.Name == payerName).Count() == 0)    //if payer not exists add payer
-                            payers.Add(new Payer(payerName));
+                            MissedMessages.Add(line);
 
                         //add payment to payer
-                        payers.Where(x => x.Name == payerName).First().AddPayment(amount, subject, line.Split(',')[0]);
+                        if (latestPayer != null)
+                            latestPayer.AddPayment(amount, subject, latestDateTime.ToString());
+                        else
+                            MissedMessages.Add(line);
                     }
                     catch (Exception)
                     {
                         System.Windows.Forms.MessageBox.Show("Error on line: " + line);
+                        MissedMessages.Add(line);
+                        PropChanged(nameof(MissedMessages));
                     }
 
                 }
 
-                txtBlckOutput.Text = "";
-                //Output(" - " + MonthFromNumber(Month) + " " + YearString + " - ");
-                //Output(" ");
-
-                foreach (Payer payer in payers)
+                if (payers.Count > 0)
                 {
-                    //Output("\r\n" + payer.Name + " hat " + payer.SumPayed + " € bezahlt.");
-                    Sum += payer.SumPayed;
+                    Payers.Clear();
+                    Sum = 0;
                 }
 
-                //Output(" ");
-
-                //Output("\r\nInsgesamt wurden " + sum + " € ausgegeben.");
-
-                //Output(" ");
-
-                float sumPerPayer = Sum / payers.Count;
-
+                txtBlckOutput.Text = "";
                 foreach (Payer payer in payers)
                 {
-                    //if (payer.SumPayed > sumPerPayer)
-                    //    Output(payer.Name + " bekommt " + (payer.SumPayed - sumPerPayer) + " €.");
-                    //else
-                    //    Output(payer.Name + " bezahlt " + (sumPerPayer - payer.SumPayed) + " €.");
-
+                    Sum += payer.SumPayed;
+                }
+                float sumPerPayer = Sum / payers.Count;
+                foreach (Payer payer in payers)
+                {
                     payer.CompensationPayment = sumPerPayer - payer.SumPayed;
 
                     Payers.Add(payer);
                 }
-
             }
 
             catch (Exception ex)
@@ -194,6 +283,20 @@ namespace GruppenFinanzAnalyse
                 PropChanged(nameof(Payers));
             }
         }
+
+        private BindingList<string> missedMessages = new BindingList<string>();
+        public BindingList<string> MissedMessages
+        {
+            get => missedMessages;
+            set
+            {
+                missedMessages = value;
+                PropChanged(nameof(MissedMessages));
+            }
+        }
+
+        private bool copiedFromWaWeb = true;
+        public bool CopiedFromWaWeb { get => copiedFromWaWeb; set { copiedFromWaWeb = value; PropChanged(nameof(CopiedFromWaWeb)); } }
 
         private float sum = 0;
         public float Sum
